@@ -24,6 +24,7 @@ import com.googlecode.kanbanik.client.messaging.messages.workflowitem.Workflowit
 import com.googlecode.kanbanik.client.modules.editworkflow.workflow.WorkflowEditingComponent.Position;
 import com.googlecode.kanbanik.client.modules.lifecyclelisteners.ModulesLifecycleListener;
 import com.googlecode.kanbanik.client.modules.lifecyclelisteners.ModulesLyfecycleListenerHandler;
+import com.googlecode.kanbanik.client.components.kanbanikwidget.KanbanikWidget;
 import com.googlecode.kanbanik.client.security.CurrentUser;
 import com.googlecode.kanbanik.dto.CommandNames;
 
@@ -49,28 +50,40 @@ public class WorkflowEditingDropController extends FlowPanelDropController imple
 	}
 
 	@Override
-	public void onPreviewDrop(DragContext context) throws VetoDragException {
-		// veto if dropped before or after himself
+public void onPreviewDrop(DragContext context) throws VetoDragException {
+    Widget widget = context.draggable;
+    Widget target = context.finalDropController.getDropTarget();
 
-		Widget w = context.selectedWidgets.iterator().next();
-		if (!(w instanceof WorkflowitemWidget)) {
-			return;
-		}
-		Dtos.WorkflowitemDto droppedItem = ((WorkflowitemWidget) w).getWorkflowitem();
-		if (droppedItem.getId() != null && currentItem != null && currentItem.getId() != null) {
-			if (droppedItem.getId().equals(currentItem.getId())) {
-				throw new VetoDragException();
-			}
+    if (isInvalidWidget(widget) || isInvalidTarget(target) || isSameWidget(widget, target) || isDroppingAtInvalidPosition(widget, target)) {
+        throw new VetoDragException();
+    }
+}
 
-			Dtos.WorkflowitemDto nextItem = findNextItem();
-			if (nextItem != null && nextItem.getId() != null
-					&& droppedItem.getId().equals(nextItem.getId())) {
-				throw new VetoDragException();
-			}
-		}
+private boolean isInvalidWidget(Widget widget) {
+    return widget == null || !(widget instanceof KanbanikWidget);
+}
 
-		super.onPreviewDrop(context);
-	}
+private boolean isInvalidTarget(Widget target) {
+    return target == null;
+}
+
+private boolean isSameWidget(Widget widget, Widget target) {
+    return widget == target;
+}
+
+private boolean isDroppingAtInvalidPosition(Widget widget, Widget target) {
+    if (target instanceof KanbanikWidget) {
+        KanbanikWidget sourceWidget = (KanbanikWidget) widget;
+        KanbanikWidget targetWidget = (KanbanikWidget) target;
+
+        if (sourceWidget.getParent() == targetWidget.getParent()) {
+            int sourceIndex = sourceWidget.getIndex();
+            int targetIndex = targetWidget.getIndex();
+            return sourceIndex == targetIndex || sourceIndex == targetIndex - 1;
+        }
+    }
+    return false;
+}
 
 	@Override
 	public void onDrop(DragContext context) {

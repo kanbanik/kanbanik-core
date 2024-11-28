@@ -88,9 +88,9 @@ public class FilterComponent extends Composite implements ModulesLifecycleListen
     @UiField
     CheckBox activateFilter;
 
-
-
     private BoardsFilter filterObject;
+    private FilterManager filterManager;
+    private UIManager uiManager;
 
     public FilterComponent() {
         fullTextFilter = new FullTextMatcherFilterComponent("Contains Text");
@@ -102,12 +102,15 @@ public class FilterComponent extends Composite implements ModulesLifecycleListen
             com.google.gwt.dom.client.Element labelTd = tr.getFirstChildElement().getNextSiblingElement();
             labelTd.getStyle().setColor("#f4faff");
         } catch (Exception e) {
-//            quite risky operation only for changing the color of a label - if it will fail than it is better to ignore it and leave the black there and continue than fail the whole app
+            // quite risky operation only for changing the color of a label - if it will fail than it is better to ignore it and leave the black there and continue than fail the whole app
         }
 
         activateFilter.setText(FILTERS_ACTIVE);
 
         new ModulesLyfecycleListenerHandler(Modules.BOARDS, this);
+
+        filterManager = new FilterManager();
+        uiManager = new UIManager();
     }
 
     private void init() {
@@ -121,11 +124,11 @@ public class FilterComponent extends Composite implements ModulesLifecycleListen
         tagsFilter.initialize(filterObject);
         projectOnBoardFilter.initialize(filterObject);
 
-        fillTaskTags(filterObject, loaded);
-        fillUsers(filterObject, loaded);
-        fillClassOfServices(filterObject, loaded);
-        fillBoards(filterObject, loaded);
-        fillProjectsOnBoards(filterObject, loaded);
+        filterManager.fillTaskTags(filterObject, loaded, tagsFilter);
+        filterManager.fillUsers(filterObject, loaded, userFilter);
+        filterManager.fillClassOfServices(filterObject, loaded, classOfServiceFilter);
+        filterManager.fillBoards(filterObject, loaded, boardFilter);
+        filterManager.fillProjectsOnBoards(filterObject, loaded, projectOnBoardFilter);
         initDueDate(filterObject);
         initActivateFilter(filterObject);
 
@@ -309,10 +312,9 @@ public class FilterComponent extends Composite implements ModulesLifecycleListen
         if ((dateCondition == BoardsFilter.DATE_CONDITION_LESS ||
                 dateCondition == BoardsFilter.DATE_CONDITION_MORE ||
                 dateCondition == BoardsFilter.DATE_CONDITION_EQALS
-        ) && !fromFilled
-                ) {
-                dueDateWarningLabel.setText("Please fill the date");
-                return false;
+        ) && !fromFilled) {
+            dueDateWarningLabel.setText("Please fill the date");
+            return false;
         }
 
         if (dateCondition == BoardsFilter.DATE_CONDITION_BETWEEN && (!fromFilled || !toFilled)) {
@@ -321,337 +323,6 @@ public class FilterComponent extends Composite implements ModulesLifecycleListen
         }
 
         return true;
-    }
-
-    private void fillUsers(final BoardsFilter filterObject, final boolean loaded) {
-        List<Dtos.UserDto> users = UsersManager.getInstance().getUsers();
-
-        users.add(0, UsersManager.getInstance().getNoUser());
-
-        for (Dtos.UserDto user : users) {
-            addUser(filterObject, loaded, user);
-        }
-
-        UsersManager.getInstance().setListener(new UsersManager.UserChangedListener() {
-            @Override
-            public void added(Dtos.UserDto user) {
-                addUser(filterObject, loaded, user);
-
-                filterObject.fireFilterChangedEvent();
-            }
-
-        });
-    }
-
-    private void addUser(BoardsFilter filterObject, boolean loaded, Dtos.UserDto user) {
-        if (!loaded || filterObject.findById(user) == -1) {
-            filterObject.add(user);
-        }
-        userFilter.add(new UserFilterCheckBox(user, filterObject));
-    }
-
-
-    private void fillClassOfServices(final BoardsFilter filterObject, final boolean loaded) {
-        List<Dtos.ClassOfServiceDto> sorted = new ArrayList<>(ClassOfServicesManager.getInstance().getAllWithNone());
-
-        Collections.sort(sorted, new Comparator<Dtos.ClassOfServiceDto>() {
-            @Override
-            public int compare(Dtos.ClassOfServiceDto classOfServiceDto, Dtos.ClassOfServiceDto classOfServiceDto2) {
-                return classOfServiceDto.getName().compareTo(classOfServiceDto2.getName());
-            }
-        });
-
-        // add default class of service if not present
-        if (sorted.isEmpty() || sorted.get(0).getId() != null) {
-            sorted.add(0, ClassOfServicesManager.getInstance().getDefaultClassOfService());
-        }
-
-        for (Dtos.ClassOfServiceDto classOfServiceDto : sorted) {
-            addClassOfService(filterObject, loaded, classOfServiceDto);
-        }
-
-        ClassOfServicesManager.getInstance().setListener(new ClassOfServicesManager.ClassOfServiceChangedListener() {
-            @Override
-            public void added(Dtos.ClassOfServiceDto classOfServiceDto) {
-                addClassOfService(filterObject, loaded, classOfServiceDto);
-
-                filterObject.fireFilterChangedEvent();
-            }
-        });
-    }
-
-    private void addClassOfService(BoardsFilter filterObject, boolean loaded, Dtos.ClassOfServiceDto classOfServiceDto) {
-        if (!loaded || filterObject.findById(classOfServiceDto) == -1) {
-            filterObject.add(classOfServiceDto);
-        }
-        classOfServiceFilter.add(new ClassOfServiceFilterCheckBox(classOfServiceDto, filterObject));
-    }
-
-    private DataCollector<Dtos.BoardDto> boardsCollector = new DataCollector<>();
-
-    private void fillBoards(BoardsFilter filterObject, boolean loaded) {
-
-        MessageBus.unregisterListener(GetAllBoardsResponseMessage.class, boardsCollector);
-        MessageBus.registerListener(GetAllBoardsResponseMessage.class, boardsCollector);
-        boardsCollector.init();
-        MessageBus.sendMessage(new GetBoardsRequestMessage(null, new GetBoardsRequestMessage.Filter() {
-            @Override
-            public boolean apply(Dtos.BoardDto boardDto) {
-                return true;
-            }
-        }, this));
-
-        List<Dtos.BoardDto> boards = boardsCollector.getData();
-        List<Dtos.BoardDto> shallowBoards = new ArrayList<>();
-        for (Dtos.BoardDto board : boards) {
-            shallowBoards.add(asShallowBoard(board));
-        }
-
-        Collections.sort(shallowBoards, new Comparator<Dtos.BoardDto>() {
-            @Override
-            public int compare(Dtos.BoardDto b1, Dtos.BoardDto b2) {
-                return b1.getName().compareTo(b2.getName());
-            }
-        });
-
-        for (Dtos.BoardDto board : shallowBoards) {
-            if (!loaded || filterObject.findById(board) == -1) {
-                filterObject.add(board);
-            }
-            boardFilter.add(new BoardsFilterCheckBox(board, filterObject));
-        }
-    }
-
-    private void fillTaskTags(final BoardsFilter filterObject, final boolean loaded) {
-        List<Dtos.TaskTag> tags = TaskTagsManager.getInstance().getTags();
-
-        Collections.sort(tags, new Comparator<Dtos.TaskTag>() {
-            @Override
-            public int compare(Dtos.TaskTag t1, Dtos.TaskTag t2) {
-                return t1.getName().compareTo(t2.getName());
-            }
-        });
-
-        if (tags.isEmpty() || tags.get(0).getId() != null) {
-            tags.add(0, TaskTagsManager.getInstance().noTag());
-        }
-
-        if (filterObject.getFilterDataDto().getTaskTags() == null) {
-            filterObject.getFilterDataDto().setTaskTags(new ArrayList<Dtos.TaskTagWithSelected>());
-        }
-
-        for (Dtos.TaskTag tag : tags) {
-            addTag(tag, loaded, filterObject);
-        }
-
-        TaskTagsManager.getInstance().setListener(new TaskTagsManager.TagsChangedListener() {
-            @Override
-            public void added(Dtos.TaskTag tag) {
-                addTag(tag, loaded, filterObject);
-
-                filterObject.fireFilterChangedEvent();
-            }
-
-            @Override
-            public void removed(Dtos.TaskTag tag) {
-                removeTag(tag);
-            }
-        });
-    }
-
-    private void removeTag(final Dtos.TaskTag tag) {
-        filterObject.deleteFromStorage(tag);
-
-        tagsFilter.remove(new PanelWithCheckboxes.Predicate() {
-            @Override
-            public boolean toRemove(CommonFilterCheckBox w) {
-                Dtos.TaskTag candidate = (Dtos.TaskTag) w.getEntity();
-                return objEq(candidate.getName(), tag.getName());
-            }
-
-        });
-
-        filterObject.storeFilterData();
-    }
-
-    private boolean objEq(Object o1, Object o2) {
-        if (o1 == null) {
-            return o2 == null;
-        }
-
-        if (o2 == null) {
-            return false;
-        }
-
-        return o1.equals(o2);
-    }
-
-    private void addTag(Dtos.TaskTag tag, boolean loaded, BoardsFilter filterObject) {
-        if (!loaded || filterObject.findByName(tag) == -1) {
-            filterObject.add(tag);
-        }
-
-        tagsFilter.add(new TaskTagFilterCheckBox(tag, filterObject));
-    }
-
-    private Dtos.BoardDto asShallowBoard(Dtos.BoardDto board) {
-        Dtos.BoardDto shallowBoard = DtoFactory.boardDto();
-        shallowBoard.setId(board.getId());
-        shallowBoard.setName(board.getName());
-        return shallowBoard;
-    }
-
-
-    private DataCollector<Dtos.BoardWithProjectsDto> projectsOnBoardsCollector = new DataCollector<>();
-
-    private void fillProjectsOnBoards(BoardsFilter filterObject, boolean loaded) {
-        MessageBus.unregisterListener(GetAllProjectsResponseMessage.class, projectsOnBoardsCollector);
-        MessageBus.registerListener(GetAllProjectsResponseMessage.class, projectsOnBoardsCollector);
-        projectsOnBoardsCollector.init();
-        MessageBus.sendMessage(new GetAllProjectsRequestMessage(null, this));
-
-        List<Dtos.BoardWithProjectsDto> boardsWithProjectsDtos = projectsOnBoardsCollector.getData();
-
-        List<Dtos.BoardWithProjectsDto> shallowBoardsWithProjectsDtos = new ArrayList<>();
-        for (Dtos.BoardWithProjectsDto boardWithProjectsDto : boardsWithProjectsDtos) {
-            Dtos.BoardWithProjectsDto shallowBoardWithProjectsDto = DtoFactory.boardWithProjectsDto();
-            shallowBoardWithProjectsDto.setBoard(asShallowBoard(boardWithProjectsDto.getBoard()));
-            shallowBoardWithProjectsDto.setProjectsOnBoard(boardWithProjectsDto.getProjectsOnBoard());
-            shallowBoardsWithProjectsDtos.add(shallowBoardWithProjectsDto);
-        }
-
-        Collections.sort(shallowBoardsWithProjectsDtos, new Comparator<Dtos.BoardWithProjectsDto>() {
-            @Override
-            public int compare(Dtos.BoardWithProjectsDto b1, Dtos.BoardWithProjectsDto b2) {
-                return b1.getProjectsOnBoard().getValues().get(0).getName().compareTo(b2.getProjectsOnBoard().getValues().get(0).getName());
-            }
-        });
-
-        for (Dtos.BoardWithProjectsDto boardWithProjectDtos : shallowBoardsWithProjectsDtos) {
-            if (!loaded || filterObject.findById(boardWithProjectDtos) == -1) {
-                filterObject.add(boardWithProjectDtos);
-            }
-            projectOnBoardFilter.add(new ProjectOnBoardFilterCheckBox(boardWithProjectDtos, filterObject));
-        }
-     }
-
-    class UserFilterCheckBox extends FilterCheckBox<Dtos.UserDto> {
-
-        public UserFilterCheckBox(Dtos.UserDto entity, BoardsFilter filter) {
-            super(entity, filter);
-            setValue(filter.isSelected(entity));
-        }
-
-        @Override
-        protected String provideText(Dtos.UserDto entity) {
-            String res = entity.getUserName();
-            if (entity.getRealName() != null && !entity.getRealName().equals("")) {
-                res += " ("+entity.getRealName()+")";
-            }
-            return res;
-        }
-
-        @Override
-        protected void doAdd(Dtos.UserDto entity, BoardsFilter filter) {
-            filter.add(entity);
-        }
-
-        @Override
-        protected void doRemove(Dtos.UserDto entity, BoardsFilter filter) {
-            filter.remove(entity);
-        }
-    }
-
-    class BoardsFilterCheckBox extends FilterCheckBox<Dtos.BoardDto> {
-
-        public BoardsFilterCheckBox(Dtos.BoardDto entity, BoardsFilter filter) {
-            super(entity, filter);
-            setValue(filter.isSelected(entity));
-        }
-
-        @Override
-        protected String provideText(Dtos.BoardDto entity) {
-            return entity.getName();
-        }
-
-        @Override
-        protected void doAdd(Dtos.BoardDto entity, BoardsFilter filter) {
-            filter.add(entity);
-        }
-
-        @Override
-        protected void doRemove(Dtos.BoardDto entity, BoardsFilter filter) {
-            filter.remove(entity);
-        }
-    }
-
-    class ProjectOnBoardFilterCheckBox extends FilterCheckBox<Dtos.BoardWithProjectsDto> {
-
-        public ProjectOnBoardFilterCheckBox(Dtos.BoardWithProjectsDto entity, BoardsFilter filter) {
-            super(entity, filter);
-            setValue(filter.isSelected(entity));
-        }
-
-        @Override
-        protected String provideText(Dtos.BoardWithProjectsDto entity) {
-            return entity.getProjectsOnBoard().getValues().get(0).getName() + "(" + entity.getBoard().getName() + ")";
-        }
-
-        @Override
-        protected void doAdd(Dtos.BoardWithProjectsDto entity, BoardsFilter filter) {
-            filter.add(entity);
-        }
-
-        @Override
-        protected void doRemove(Dtos.BoardWithProjectsDto entity, BoardsFilter filter) {
-            filter.remove(entity);
-        }
-    }
-
-    class ClassOfServiceFilterCheckBox extends FilterCheckBox<Dtos.ClassOfServiceDto> {
-
-        public ClassOfServiceFilterCheckBox(Dtos.ClassOfServiceDto entity, BoardsFilter filter) {
-            super(entity, filter);
-            setValue(filter.isSelected(entity));
-        }
-
-        @Override
-        protected String provideText(Dtos.ClassOfServiceDto entity) {
-            return entity.getName();
-        }
-
-        @Override
-        protected void doAdd(Dtos.ClassOfServiceDto entity, BoardsFilter filter) {
-            filter.add(entity);
-        }
-
-        @Override
-        protected void doRemove(Dtos.ClassOfServiceDto entity, BoardsFilter filter) {
-            filter.remove(entity);
-        }
-    }
-
-    class TaskTagFilterCheckBox extends FilterCheckBox<Dtos.TaskTag> {
-
-        public TaskTagFilterCheckBox(Dtos.TaskTag entity, BoardsFilter filter) {
-            super(entity, filter);
-            setValue(filter.isSelected(entity));
-        }
-
-        @Override
-        protected String provideText(Dtos.TaskTag entity) {
-            return entity.getName();
-        }
-
-        @Override
-        protected void doAdd(Dtos.TaskTag entity, BoardsFilter filter) {
-            filter.add(entity);
-        }
-
-        @Override
-        protected void doRemove(Dtos.TaskTag entity, BoardsFilter filter) {
-            filter.remove(entity);
-        }
     }
 
     @Override
@@ -666,10 +337,10 @@ public class FilterComponent extends Composite implements ModulesLifecycleListen
 
     @Override
     public void onNumOfHiddenFieldsChanged(int newNum) {
-//        if (!activateFilter.getValue() || newNum == 0) {
-//            activateFilter.setText(FILTERS_ACTIVE);
-//        } else {
-//            activateFilter.setText(FILTERS_ACTIVE + " (" + newNum + " entities match criteria to be hidden)");
-//        }
+        // if (!activateFilter.getValue() || newNum == 0) {
+        //     activateFilter.setText(FILTERS_ACTIVE);
+        // } else {
+        //     activateFilter.setText(FILTERS_ACTIVE + " (" + newNum + " entities match criteria to be hidden)");
+        // }
     }
 }
