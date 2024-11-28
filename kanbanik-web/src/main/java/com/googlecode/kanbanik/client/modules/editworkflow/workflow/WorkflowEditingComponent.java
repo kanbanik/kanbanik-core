@@ -25,6 +25,7 @@ import com.googlecode.kanbanik.client.messaging.Message;
 import com.googlecode.kanbanik.client.messaging.MessageBus;
 import com.googlecode.kanbanik.client.messaging.MessageListener;
 import com.googlecode.kanbanik.client.messaging.messages.board.BoardChangedMessage;
+import com.googlecode.kanbanik.client.modules.editworkflow.workflow.WorkflowEditingComponent.DropDisablingDropController;
 import com.googlecode.kanbanik.client.modules.lifecyclelisteners.ModulesLifecycleListener;
 import com.googlecode.kanbanik.client.modules.lifecyclelisteners.ModulesLyfecycleListenerHandler;
 
@@ -162,88 +163,124 @@ public class WorkflowEditingComponent extends Composite implements
 	}
 
 	public void buildBoard(Dtos.WorkflowDto parentWorkflow,
-			Dtos.WorkflowDto currentWorkflow, Dtos.ProjectDto project, FlexTable table,
-			PickupDragController dragController, int row, int column) {
-		if (currentWorkflow == null || currentWorkflow.getWorkflowitems().isEmpty()) {
-			return;
-		}
+        Dtos.WorkflowDto currentWorkflow, Dtos.ProjectDto project, FlexTable table,
+        PickupDragController dragController, int row, int column) {
+    if (currentWorkflow == null || currentWorkflow.getWorkflowitems().isEmpty()) {
+        return;
+    }
 
-		Dtos.WorkflowitemDto current = currentWorkflow.getWorkflowitems().get(0);
-		
-		if (Dtos.ItemType.from(current.getItemType()) == Dtos.ItemType.HORIZONTAL) {
-			table.setWidget(
-					row,
-					column,
-					createDropTarget(dragController, currentWorkflow,
-							current, Position.BEFORE,
-							KanbanikResources.INSTANCE.rightDropArrowImage()));
-			column++;
-		} else if (Dtos.ItemType.from(current.getItemType()) == Dtos.ItemType.VERTICAL) {
-			table.setWidget(
-					row,
-					column,
-					createDropTarget(dragController, currentWorkflow,
-							current, Position.BEFORE,
-							KanbanikResources.INSTANCE.downDropArrowImage()));
+    Dtos.WorkflowitemDto current = currentWorkflow.getWorkflowitems().get(0);
+    PositionData positionData = processCurrentItem(currentWorkflow, current, table, dragController, row, column);
+    row = positionData.row;
+    column = positionData.column;
 
-			row++;
-		} else {
-			throw new IllegalStateException("Unsupported item type: '"
-					+ current.getItemType() + "'");
-		}
+    for (Dtos.WorkflowitemDto currentItem : currentWorkflow.getWorkflowitems()) {
+        processWorkflowItem(currentWorkflow, currentItem, project, table, dragController, row, column);
+        PositionData updatedPosition = updatePosition(currentItem, table, currentWorkflow, dragController, row, column);
+        row = updatedPosition.row;
+        column = updatedPosition.column;
+    }
+}
 
-		for(Dtos.WorkflowitemDto currentItem : currentWorkflow.getWorkflowitems()) {
-			if (!currentItem.getNestedWorkflow().getWorkflowitems().isEmpty()) {
-				// this one has a child, so does not have a drop target in it's
-				// body (content)
-				FlexTable childTable = new FlexTable();
-				childTable.setStyleName("boards-board");
-				table.setWidget(
-						row,
-						column,
-						createWorkflowitemPlace(dragController, currentItem,
-								project, childTable));
-				buildBoard(currentWorkflow, currentItem.getNestedWorkflow(), project,
-						childTable, dragController, 0, 0);
-			} else {
-				// this one does not have a child yet, so create a drop target
-				// so it can have in the future
-				Panel dropTarget = createDropTarget(dragController,
-						currentItem.getNestedWorkflow(), null, Position.INSIDE,
-						KanbanikResources.INSTANCE.insideDropArrowImage());
-				table.setWidget(
-						row,
-						column,
-						createWorkflowitemPlace(dragController, currentItem,
-								project, dropTarget));
-			}
+private PositionData processCurrentItem(Dtos.WorkflowDto currentWorkflow, Dtos.WorkflowitemDto current, FlexTable table,
+        PickupDragController dragController, int row, int column) {
+    Dtos.ItemType itemType = Dtos.ItemType.from(current.getItemType());
 
-			if (Dtos.ItemType.from(currentItem.getItemType()) == Dtos.ItemType.HORIZONTAL) {
-				column++;
-				table.setWidget(
-						row,
-						column,
-						createDropTarget(dragController, currentWorkflow,
-								currentItem, Position.AFTER,
-								KanbanikResources.INSTANCE.rightDropArrowImage()));
-				column++;
-			} else if (Dtos.ItemType.from(currentItem.getItemType()) == Dtos.ItemType.VERTICAL) {
-				row++;
-				table.setWidget(
-						row,
-						column,
-						createDropTarget(dragController, currentWorkflow,
-								currentItem, Position.AFTER,
-								KanbanikResources.INSTANCE.downDropArrowImage()));
-				row++;
-			} else {
-				throw new IllegalStateException("Unsupported item type: '"
-						+ currentItem.getItemType() + "'");
-			}
+    switch (itemType) {
+        case HORIZONTAL:
+            table.setWidget(
+                row,
+                column,
+                createDropTarget(dragController, currentWorkflow,
+                        current, Position.BEFORE,
+                        KanbanikResources.INSTANCE.rightDropArrowImage()));
+            column++;
+            break;
+        case VERTICAL:
+            table.setWidget(
+                row,
+                column,
+                createDropTarget(dragController, currentWorkflow,
+                        current, Position.BEFORE,
+                        KanbanikResources.INSTANCE.downDropArrowImage()));
+            row++;
+            break;
+        default:
+            throw new IllegalStateException("Unsupported item type: '"
+                    + current.getItemType() + "'");
+    }
 
-		}
+    return new PositionData(row, column);
+}
 
-	}
+private void processWorkflowItem(Dtos.WorkflowDto currentWorkflow, Dtos.WorkflowitemDto currentItem, Dtos.ProjectDto project,
+        FlexTable table, PickupDragController dragController, int row, int column) {
+    if (!currentItem.getNestedWorkflow().getWorkflowitems().isEmpty()) {
+        // Possui um filho
+        FlexTable childTable = new FlexTable();
+        childTable.setStyleName("boards-board");
+        table.setWidget(
+                row,
+                column,
+                createWorkflowitemPlace(dragController, currentItem,
+                        project, childTable));
+        buildBoard(currentWorkflow, currentItem.getNestedWorkflow(), project,
+                childTable, dragController, 0, 0);
+    } else {
+        // Não possui filho
+        Panel dropTarget = createDropTarget(dragController,
+                currentItem.getNestedWorkflow(), null, Position.INSIDE,
+                KanbanikResources.INSTANCE.insideDropArrowImage());
+        table.setWidget(
+                row,
+                column,
+                createWorkflowitemPlace(dragController, currentItem,
+                        project, dropTarget));
+    }
+}
+
+private PositionData updatePosition(Dtos.WorkflowitemDto currentItem, FlexTable table, Dtos.WorkflowDto currentWorkflow,
+        PickupDragController dragController, int row, int column) {
+    Dtos.ItemType itemType = Dtos.ItemType.from(currentItem.getItemType());
+
+    switch (itemType) {
+        case HORIZONTAL:
+            column++;
+            table.setWidget(
+                row,
+                column,
+                createDropTarget(dragController, currentWorkflow,
+                        currentItem, Position.AFTER,
+                        KanbanikResources.INSTANCE.rightDropArrowImage()));
+            column++;
+            break;
+        case VERTICAL:
+            row++;
+            table.setWidget(
+                row,
+                column,
+                createDropTarget(dragController, currentWorkflow,
+                        currentItem, Position.AFTER,
+                        KanbanikResources.INSTANCE.downDropArrowImage()));
+            row++;
+            break;
+        default:
+            throw new IllegalStateException("Unsupported item type: '"
+                    + currentItem.getItemType() + "'");
+    }
+
+    return new PositionData(row, column);
+}
+
+private static class PositionData {
+    int row;
+    int column;
+
+    PositionData(int row, int column) {
+        this.row = row;
+        this.column = column;
+    }
+}
 
 	private Panel createDropTarget(PickupDragController dragController,
 			Dtos.WorkflowDto contextItem, Dtos.WorkflowitemDto currentItem,
